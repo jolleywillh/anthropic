@@ -23,6 +23,26 @@ wheels/
 .installed.cfg
 *.egg
 
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Data files
+data/
+*.csv
+*.parquet
+*.pkl
+*.joblib
+
+# Models and output (generated files)
+models/
+plots/
+forecasts/
+
+# Notebooks
+.ipynb_checkpoints
+*.ipynb
 # Environment variables
 .env
 
@@ -38,6 +58,11 @@ wheels/
 Thumbs.db
 
 # Logs
+logs/
+*.log
+
+# Config (if containing sensitive data)
+config/secrets.yaml
 *.log
 logs/
 

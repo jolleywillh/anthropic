@@ -310,6 +310,9 @@ def main():
                 save_plot=not args.no_plot
             )
 
+    except FileNotFoundError as e:
+        logger.error(f"\n{str(e)}\n")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Error: {str(e)}", exc_info=True)
     print("=" * 60)

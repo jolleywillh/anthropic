@@ -44,7 +44,9 @@ pip install -r requirements.txt
 
 ## Quick Start
 
-### 1. Train the Model
+**⚠️ Important:** You must train the model before generating forecasts. If you try to forecast without training first, you'll get an error message.
+
+### 1. Train the Model (Required First Step)
 
 Train the forecasting model on historical data:
 

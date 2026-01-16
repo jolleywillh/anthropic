@@ -317,9 +317,19 @@ class PriceForecastModel:
 
         Args:
             model_dir: Directory containing saved models
+
+        Raises:
+            FileNotFoundError: If model files don't exist
         """
         if model_dir is None:
             model_dir = self.config['model']['model_dir']
+
+        # Check if model directory exists
+        if not os.path.exists(model_dir):
+            raise FileNotFoundError(
+                f"Model directory '{model_dir}' not found. "
+                "Please train the model first using: python main.py --train"
+            )
 
         # Load XGBoost
         xgb_path = os.path.join(model_dir, 'xgboost_model.json')
@@ -328,12 +338,22 @@ class PriceForecastModel:
             self.models['xgboost'] = xgb.XGBRegressor()
             self.models['xgboost'].load_model(xgb_path)
             logger.info(f"XGBoost model loaded from {xgb_path}")
+        else:
+            raise FileNotFoundError(
+                f"XGBoost model not found at '{xgb_path}'. "
+                "Please train the model first using: python main.py --train"
+            )
 
         # Load Random Forest
         rf_path = os.path.join(model_dir, 'random_forest_model.joblib')
         if os.path.exists(rf_path):
             self.models['random_forest'] = joblib.load(rf_path)
             logger.info(f"Random Forest model loaded from {rf_path}")
+        else:
+            raise FileNotFoundError(
+                f"Random Forest model not found at '{rf_path}'. "
+                "Please train the model first using: python main.py --train"
+            )
 
         # Load feature importance if available
         for model_name in ['xgboost', 'random_forest']:
@@ -341,7 +361,7 @@ class PriceForecastModel:
             if os.path.exists(importance_path):
                 self.feature_importance[model_name] = pd.read_csv(importance_path)
 
-        logger.info(f"Models loaded from {model_dir}")
+        logger.info(f"Models loaded successfully from {model_dir}")
 
 
 if __name__ == "__main__":

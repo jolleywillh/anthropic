@@ -32,10 +32,10 @@ data/
 *.pkl
 *.joblib
 
-# Models
-models/*.pkl
-models/*.joblib
-models/*.json
+# Models and output (generated files)
+models/
+plots/
+forecasts/
 
 # Notebooks
 .ipynb_checkpoints

@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 *.so
 .Python
+env/
+venv/
+ENV/
 build/
 develop-eggs/
 dist/
@@ -40,6 +43,8 @@ forecasts/
 # Notebooks
 .ipynb_checkpoints
 *.ipynb
+# Environment variables
+.env
 
 # IDE
 .vscode/
@@ -58,3 +63,10 @@ logs/
 
 # Config (if containing sensitive data)
 config/secrets.yaml
+*.log
+logs/
+
+# Output
+output/
+*.json
+*.csv

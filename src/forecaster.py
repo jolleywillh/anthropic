@@ -22,14 +22,17 @@ logger = logging.getLogger(__name__)
 class DayAheadForecaster:
     """Generates 24-hour Day-Ahead price forecasts"""
 
-    def __init__(self, config_path: str = "config.yaml"):
+    def __init__(self, config_path: str = "config.yaml", hub: Optional[str] = None):
         """
         Initialize the forecaster
 
         Args:
             config_path: Path to configuration file
+            hub: ERCOT settlement point/hub (e.g., 'HB_HOUSTON', 'HB_NORTH')
+                 If None, uses default_hub from config
         """
         self.config = self._load_config(config_path)
+        self.hub = hub or self.config['data'].get('default_hub', 'HB_HUBAVG')
         self.model = PriceForecastModel(config_path)
         self.engineer = FeatureEngineer(
             lag_features=self.config['model']['lag_features'],
@@ -38,6 +41,7 @@ class DayAheadForecaster:
         self.collector = ERCOTDataCollector(
             data_dir=self.config['data']['raw_data_dir']
         )
+        logger.info(f"Initialized forecaster for hub: {self.hub}")
 
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file"""
@@ -48,24 +52,40 @@ class DayAheadForecaster:
             logger.warning(f"Config file {config_path} not found")
             return {}
 
-    def load_historical_data(self) -> pd.DataFrame:
+    def load_historical_data(self, hub: Optional[str] = None) -> pd.DataFrame:
         """
         Load historical data for feature creation
+
+        Args:
+            hub: Specific hub to load data for (overrides self.hub if provided)
 
         Returns:
             DataFrame with historical price data
         """
-        logger.info("Loading historical data")
+        target_hub = hub or self.hub
+        logger.info(f"Loading historical data for hub: {target_hub}")
+
+        # Create hub-specific filename
+        hub_filename = f"ercot_dam_prices_{target_hub}.csv"
 
         # Try to load from file
-        df = self.collector.load_data()
+        df = self.collector.load_data(filename=hub_filename)
 
         if df.empty:
             # Fetch fresh data
             logger.info("No cached data found, fetching from ERCOT")
             end_date = datetime.now()
             start_date = end_date - timedelta(days=self.config['data']['lookback_days'])
-            df = self.collector.fetch_and_save(start_date=start_date, end_date=end_date)
+            df = self.collector.fetch_and_save(
+                start_date=start_date,
+                end_date=end_date,
+                settlement_point=target_hub,
+                filename=hub_filename
+            )
+
+        # Filter to only the target hub if multiple hubs are present
+        if 'settlement_point' in df.columns:
+            df = df[df['settlement_point'] == target_hub].copy()
 
         return df
 
@@ -73,7 +93,8 @@ class DayAheadForecaster:
         self,
         historical_data: pd.DataFrame,
         forecast_start: Optional[datetime] = None,
-        forecast_hours: int = 24
+        forecast_hours: int = 24,
+        hub: Optional[str] = None
     ) -> pd.DataFrame:
         """
         Prepare features for forecasting
@@ -82,11 +103,13 @@ class DayAheadForecaster:
             historical_data: Historical price data
             forecast_start: Start time for forecast (default: next hour)
             forecast_hours: Number of hours to forecast
+            hub: Settlement point/hub for forecast (uses self.hub if not provided)
 
         Returns:
             DataFrame with features for forecasting
         """
-        logger.info(f"Preparing features for {forecast_hours}-hour forecast")
+        target_hub = hub or self.hub
+        logger.info(f"Preparing features for {forecast_hours}-hour forecast for {target_hub}")
 
         if forecast_start is None:
             # Default: start from next hour
@@ -137,6 +160,11 @@ class DayAheadForecaster:
             # Seasonal
             row['is_summer'] = int(row['month'] in [6, 7, 8])
             row['is_winter'] = int(row['month'] in [12, 1, 2])
+
+            # Hub encoding (one-hot encode the settlement point)
+            known_hubs = ['HB_HUBAVG', 'HB_HOUSTON', 'HB_NORTH', 'HB_SOUTH', 'HB_WEST']
+            for hub_name in known_hubs:
+                row[f'hub_{hub_name}'] = int(target_hub == hub_name)
 
             # For lag and rolling features, we need to look back at historical + previously forecasted
             # Combine historical data with any forecasted points so far
@@ -236,7 +264,8 @@ class DayAheadForecaster:
         self,
         forecast_start: Optional[datetime] = None,
         forecast_hours: int = 24,
-        include_confidence: bool = True
+        include_confidence: bool = True,
+        hub: Optional[str] = None
     ) -> pd.DataFrame:
         """
         Generate Day-Ahead price forecast
@@ -245,11 +274,13 @@ class DayAheadForecaster:
             forecast_start: Start time for forecast
             forecast_hours: Number of hours to forecast
             include_confidence: Whether to include confidence intervals
+            hub: Settlement point/hub for forecast (uses self.hub if not provided)
 
         Returns:
             DataFrame with forecast
         """
-        logger.info(f"Generating {forecast_hours}-hour Day-Ahead forecast")
+        target_hub = hub or self.hub
+        logger.info(f"Generating {forecast_hours}-hour Day-Ahead forecast for {target_hub}")
 
         # Load model if not already loaded
         if len(self.model.models) == 0:
@@ -257,18 +288,20 @@ class DayAheadForecaster:
             self.model.load_models()
 
         # Load historical data
-        historical_data = self.load_historical_data()
+        historical_data = self.load_historical_data(hub=target_hub)
 
         # Prepare features
         forecast_df = self.prepare_forecast_features(
             historical_data,
             forecast_start=forecast_start,
-            forecast_hours=forecast_hours
+            forecast_hours=forecast_hours,
+            hub=target_hub
         )
 
         # Create result DataFrame
         result = pd.DataFrame({
             'datetime': forecast_df.index,
+            'hub': target_hub,
             'forecasted_price': forecast_df['price']
         })
 
@@ -291,20 +324,22 @@ class DayAheadForecaster:
 
         return result
 
-    def save_forecast(self, forecast_df: pd.DataFrame, filename: Optional[str] = None):
+    def save_forecast(self, forecast_df: pd.DataFrame, filename: Optional[str] = None, hub: Optional[str] = None):
         """
         Save forecast to file
 
         Args:
             forecast_df: Forecast DataFrame
-            filename: Output filename (default: forecast_YYYYMMDD_HHMMSS.csv)
+            filename: Output filename (default: forecast_{hub}_YYYYMMDD_HHMMSS.csv)
+            hub: Hub name for the filename (uses self.hub if not provided)
         """
         forecast_dir = self.config['output']['forecast_dir']
         os.makedirs(forecast_dir, exist_ok=True)
 
         if filename is None:
+            target_hub = hub or self.hub
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"forecast_{timestamp}.csv"
+            filename = f"forecast_{target_hub}_{timestamp}.csv"
 
         filepath = os.path.join(forecast_dir, filename)
         forecast_df.to_csv(filepath, index=False)

@@ -52,9 +52,9 @@ class FeatureEngineer:
 
         df = df.sort_index()
 
-        # Drop non-numeric columns that shouldn't be features
-        columns_to_drop = ['settlement_point']
-        df = df.drop(columns=[col for col in columns_to_drop if col in df.columns], errors='ignore')
+        # Encode settlement_point as categorical features if present
+        if 'settlement_point' in df.columns:
+            df = self._encode_settlement_point(df)
 
         # Create temporal features
         df = self._create_temporal_features(df)
@@ -74,6 +74,30 @@ class FeatureEngineer:
         logger.info(f"Dropped {initial_rows - len(df)} rows with NaN values")
 
         logger.info(f"Feature engineering complete. Created {len(df.columns)} features")
+
+        return df
+
+    def _encode_settlement_point(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Encode settlement point as one-hot encoded features
+
+        Args:
+            df: DataFrame with settlement_point column
+
+        Returns:
+            DataFrame with encoded settlement point features
+        """
+        logger.info("Encoding settlement point as categorical features")
+
+        # Define the standard ERCOT hubs
+        known_hubs = ['HB_HUBAVG', 'HB_HOUSTON', 'HB_NORTH', 'HB_SOUTH', 'HB_WEST']
+
+        # One-hot encode the settlement point
+        for hub in known_hubs:
+            df[f'hub_{hub}'] = (df['settlement_point'] == hub).astype(int)
+
+        # Drop the original settlement_point column
+        df = df.drop(columns=['settlement_point'])
 
         return df
 

@@ -11,6 +11,17 @@ data:
   # Historical data parameters
   lookback_days: 730  # 2 years of historical data for training
 
+  # ERCOT Settlement Points / Hubs
+  hubs:
+    - HB_HOUSTON  # Houston Hub
+    - HB_NORTH    # North Hub
+    - HB_SOUTH    # South Hub
+    - HB_WEST     # West Hub
+    - HB_HUBAVG   # Hub Average (default)
+
+  # Default hub for single-hub operations
+  default_hub: "HB_HUBAVG"
+
 model:
   # Model storage
   model_dir: "models"

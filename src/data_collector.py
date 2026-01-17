@@ -9,7 +9,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import time
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 import os
 
 logging.basicConfig(level=logging.INFO)
@@ -74,12 +74,12 @@ class ERCOTDataCollector:
                 return df
             else:
                 logger.warning("No data returned from API, generating synthetic data for demonstration")
-                return self._generate_synthetic_data(start_date, end_date)
+                return self._generate_synthetic_data(start_date, end_date, settlement_point)
 
         except Exception as e:
             logger.error(f"Error fetching data from ERCOT API: {str(e)}")
             logger.info("Generating synthetic data for demonstration purposes")
-            return self._generate_synthetic_data(start_date, end_date)
+            return self._generate_synthetic_data(start_date, end_date, settlement_point)
 
     def _parse_ercot_response(self, data: dict, settlement_point: str) -> Optional[pd.DataFrame]:
         """
@@ -118,26 +118,43 @@ class ERCOTDataCollector:
             logger.error(f"Error parsing ERCOT response: {str(e)}")
             return None
 
-    def _generate_synthetic_data(self, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    def _generate_synthetic_data(self, start_date: datetime, end_date: datetime, settlement_point: str = "HB_HUBAVG") -> pd.DataFrame:
         """
         Generate synthetic ERCOT Day-Ahead price data for demonstration
 
         Args:
             start_date: Start date
             end_date: End date
+            settlement_point: Settlement point name for the generated data
 
         Returns:
             DataFrame with synthetic price data
         """
-        logger.info("Generating realistic synthetic ERCOT Day-Ahead price data")
+        logger.info(f"Generating realistic synthetic ERCOT Day-Ahead price data for {settlement_point}")
 
         # Create hourly datetime range
         date_range = pd.date_range(start=start_date, end=end_date, freq='h')
 
-        np.random.seed(42)
+        # Use hub-specific seed for variation between hubs
+        hub_seeds = {
+            'HB_HUBAVG': 42,
+            'HB_HOUSTON': 43,
+            'HB_NORTH': 44,
+            'HB_SOUTH': 45,
+            'HB_WEST': 46
+        }
+        seed = hub_seeds.get(settlement_point, 42)
+        np.random.seed(seed)
 
-        # Base price around typical ERCOT levels ($25-35/MWh)
-        base_price = 30
+        # Hub-specific base price adjustments (typical ERCOT levels $25-35/MWh)
+        hub_price_adjustments = {
+            'HB_HUBAVG': 0,      # baseline
+            'HB_HOUSTON': 2,     # slightly higher (population center)
+            'HB_NORTH': -1,      # slightly lower
+            'HB_SOUTH': 1,       # moderate
+            'HB_WEST': -2        # typically lower (wind generation)
+        }
+        base_price = 30 + hub_price_adjustments.get(settlement_point, 0)
 
         # Seasonal component (higher in summer)
         days_since_start = (date_range - date_range[0]).days
@@ -175,7 +192,7 @@ class ERCOTDataCollector:
         df = pd.DataFrame({
             'datetime': date_range,
             'price': prices,
-            'settlement_point': 'HB_HUBAVG'
+            'settlement_point': settlement_point
         })
 
         logger.info(f"Generated {len(df)} synthetic records")
@@ -185,6 +202,39 @@ class ERCOTDataCollector:
                    f"Max: ${df['price'].max():.2f}")
 
         return df
+
+    def fetch_dam_prices_multi_hub(
+        self,
+        hubs: List[str],
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> pd.DataFrame:
+        """
+        Fetch Day-Ahead Market prices for multiple settlement points (hubs)
+
+        Args:
+            hubs: List of ERCOT settlement points (e.g., ['HB_HOUSTON', 'HB_NORTH'])
+            start_date: Start date for data fetch
+            end_date: End date for data fetch
+
+        Returns:
+            DataFrame with Day-Ahead prices for all hubs
+        """
+        logger.info(f"Fetching data for {len(hubs)} hubs: {', '.join(hubs)}")
+
+        all_data = []
+        for hub in hubs:
+            hub_data = self.fetch_dam_prices(start_date, end_date, settlement_point=hub)
+            if not hub_data.empty:
+                all_data.append(hub_data)
+
+        if all_data:
+            combined_df = pd.concat(all_data, ignore_index=True)
+            logger.info(f"Successfully fetched {len(combined_df)} total records across all hubs")
+            return combined_df
+        else:
+            logger.warning("No data fetched for any hubs")
+            return pd.DataFrame()
 
     def save_data(self, df: pd.DataFrame, filename: str = "ercot_dam_prices.csv"):
         """
